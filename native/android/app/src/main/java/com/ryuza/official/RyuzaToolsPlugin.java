@@ -8,8 +8,8 @@ import android.util.Base64;
 
 import androidx.documentfile.provider.DocumentFile;
 
-import com.getcapacitor.annotation.ActivityCallback;
 import androidx.activity.result.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -30,6 +30,8 @@ import rikka.shizuku.Shizuku;
 public class RyuzaToolsPlugin extends Plugin {
     private static final String PREFS = "ryuza_native_tools";
     private static final String TARGET_URI = "target_tree_uri";
+    private static final String TARGET_PATH = "target_asset_path";
+    private static final String DEFAULT_ASSET_PATH = "/storage/emulated/0/Android/data/com.mobile.legends/files/dragon2017/asset";
     private static final int SHIZUKU_REQUEST_CODE = 7421;
 
     @PluginMethod
@@ -105,86 +107,99 @@ public class RyuzaToolsPlugin extends Plugin {
     @PluginMethod
     public void getTargetFolder(PluginCall call) {
         String uri = getContext().getSharedPreferences(PREFS, 0).getString(TARGET_URI, null);
-        JSObject result = new JSObject(); result.put("selected", uri != null);
-        if (uri != null) { result.put("uri", uri); result.put("name", folderName(Uri.parse(uri))); }
+        String path = getContext().getSharedPreferences(PREFS, 0).getString(TARGET_PATH, DEFAULT_ASSET_PATH);
+        JSObject result = new JSObject(); result.put("selected", true); result.put("path", path); result.put("name", path.substring(path.lastIndexOf("/") + 1));
+        if (uri != null) result.put("uri", uri);
         call.resolve(result);
     }
 
     @PluginMethod
     public void listTargetFiles(PluginCall call) {
-        DocumentFile folder = getTargetFolderDocument();
-        if (folder == null || !folder.canRead()) { call.reject("Pilih folder tujuan terlebih dahulu."); return; }
-        JSArray files = new JSArray();
-        for (DocumentFile file : folder.listFiles()) {
-            if (file.isFile()) {
-                JSObject item = new JSObject(); item.put("name", file.getName()); item.put("size", file.length()); item.put("lastModified", file.lastModified()); files.put(item);
+        try {
+            String path = call.getString("path", getSavedTargetPath());
+            validateAssetPath(path);
+            String output = runShizuku("ls -la " + shellQuote(path));
+            JSArray files = new JSArray();
+            for (String line : output.split("\\r?\\n")) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty() || trimmed.startsWith("total ") || trimmed.equals(".") || trimmed.equals("..")) continue;
+                String[] parts = trimmed.split("\\s+", 9);
+                if (parts.length < 9) continue;
+                String name = parts[8];
+                if (name.equals(".") || name.equals("..")) continue;
+                JSObject item = new JSObject(); item.put("name", name); item.put("directory", parts[0].startsWith("d"));
+                try { item.put("size", Long.parseLong(parts[4])); } catch (Exception ignored) { item.put("size", 0); }
+                files.put(item);
             }
-        }
-        JSObject result = new JSObject(); result.put("files", files); result.put("count", files.length()); call.resolve(result);
+            JSObject result = new JSObject(); result.put("files", files); result.put("count", files.length()); result.put("path", path); call.resolve(result);
+        } catch (Exception error) { call.reject("Tidak dapat membaca folder melalui Shizuku: " + error.getMessage()); }
+    }
+
+    @PluginMethod
+    public void setTargetPath(PluginCall call) {
+        try {
+            String path = call.getString("path"); validateAssetPath(path);
+            runShizuku("test -d " + shellQuote(path) + " && echo RYUZA_OK");
+            getContext().getSharedPreferences(PREFS, 0).edit().putString(TARGET_PATH, path).apply();
+            JSObject result = new JSObject(); result.put("path", path); result.put("name", path.substring(path.lastIndexOf("/") + 1)); call.resolve(result);
+        } catch (Exception error) { call.reject("Folder tidak dapat dibuka: " + error.getMessage()); }
     }
 
     @PluginMethod
     public void replaceAsset(PluginCall call) {
-        String fileName = call.getString("fileName");
-        String base64 = call.getString("dataBase64");
+        String fileName = call.getString("fileName"); String base64 = call.getString("dataBase64");
         if (!isSafeFileName(fileName) || base64 == null) { call.reject("Nama file atau data file tidak valid."); return; }
-        DocumentFile folder = getTargetFolderDocument();
-        if (folder == null || !folder.canWrite()) { call.reject("Folder tujuan belum dipilih atau tidak memiliki izin tulis."); return; }
         try {
-            byte[] data = Base64.decode(base64, Base64.DEFAULT);
-            DocumentFile backupFolder = folder.findFile("Ryuza-Backup");
-            if (backupFolder == null) backupFolder = folder.createDirectory("Ryuza-Backup");
-            DocumentFile existing = folder.findFile(fileName);
+            String path = getSavedTargetPath(); validateAssetPath(path);
+            String backupDir = path + "/Ryuza-Backup";
+            runShizuku("mkdir -p " + shellQuote(backupDir));
+            String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
+            String target = path + "/" + fileName; String backup = backupDir + "/" + stamp + "__" + fileName;
+            String exists = runShizuku("if [ -f " + shellQuote(target) + " ]; then echo YES; else echo NO; fi").trim();
             String backupName = null;
-            if (existing != null && existing.isFile()) {
-                backupName = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date()) + "__" + fileName;
-                DocumentFile backup = backupFolder.createFile("application/octet-stream", backupName);
-                if (backup == null) throw new IOException("Tidak dapat membuat file backup.");
-                copyUri(existing.getUri(), backup.getUri());
-                if (!existing.delete()) throw new IOException("Gagal mengganti file lama; backup tetap disimpan.");
-            }
-            DocumentFile replacement = folder.createFile("application/octet-stream", fileName);
-            if (replacement == null) throw new IOException("Tidak dapat membuat file pengganti.");
-            try (OutputStream output = getContext().getContentResolver().openOutputStream(replacement.getUri(), "w")) {
-                if (output == null) throw new IOException("Tidak dapat membuka file tujuan.");
-                output.write(data); output.flush();
-            }
+            if (exists.equals("YES")) { runShizuku("cp " + shellQuote(target) + " " + shellQuote(backup)); backupName = stamp + "__" + fileName; }
+            byte[] data = Base64.decode(base64, Base64.DEFAULT);
+            String encoded = Base64.encodeToString(data, Base64.NO_WRAP);
+            runShizuku("echo " + shellQuote(encoded) + " | base64 -d > " + shellQuote(target));
             JSObject result = new JSObject(); result.put("success", true); result.put("fileName", fileName); result.put("bytes", data.length); result.put("backupName", backupName); call.resolve(result);
         } catch (Exception error) { call.reject("Penggantian file gagal: " + error.getMessage()); }
     }
 
     @PluginMethod
     public void listBackups(PluginCall call) {
-        DocumentFile folder = getTargetFolderDocument();
-        if (folder == null) { call.reject("Pilih folder tujuan terlebih dahulu."); return; }
-        DocumentFile backupFolder = folder.findFile("Ryuza-Backup");
-        JSArray files = new JSArray();
-        if (backupFolder != null && backupFolder.isDirectory()) {
-            for (DocumentFile file : backupFolder.listFiles()) if (file.isFile()) {
-                JSObject item = new JSObject(); item.put("name", file.getName()); item.put("size", file.length()); item.put("lastModified", file.lastModified()); files.put(item);
-            }
-        }
-        JSObject result = new JSObject(); result.put("files", files); result.put("count", files.length()); call.resolve(result);
+        try {
+            String path = getSavedTargetPath() + "/Ryuza-Backup";
+            String output = runShizuku("ls -la " + shellQuote(path) + " 2>/dev/null || true");
+            JSArray files = new JSArray();
+            for (String line : output.split("\\r?\\n")) { String[] p = line.trim().split("\\s+", 9); if (p.length >= 9 && p[0].startsWith("-")) { JSObject item = new JSObject(); item.put("name", p[8]); try { item.put("size", Long.parseLong(p[4])); } catch (Exception ignored) {} files.put(item); } }
+            JSObject result = new JSObject(); result.put("files", files); result.put("count", files.length()); call.resolve(result);
+        } catch (Exception e) { call.reject(e.getMessage()); }
     }
 
     @PluginMethod
     public void restoreBackup(PluginCall call) {
         String backupName = call.getString("backupName");
-        if (backupName == null || backupName.contains("/") || backupName.contains("\\")) { call.reject("Backup tidak valid."); return; }
-        DocumentFile folder = getTargetFolderDocument();
-        DocumentFile backupFolder = folder == null ? null : folder.findFile("Ryuza-Backup");
-        DocumentFile backup = backupFolder == null ? null : backupFolder.findFile(backupName);
-        if (backup == null || !backup.isFile()) { call.reject("File backup tidak ditemukan."); return; }
-        String originalName = backupName.substring(backupName.indexOf("__") >= 0 ? backupName.indexOf("__") + 2 : 0);
-        if (!isSafeFileName(originalName)) { call.reject("Nama file backup tidak valid."); return; }
+        if (!isSafeFileName(backupName) || !backupName.contains("__")) { call.reject("Backup tidak valid."); return; }
         try {
-            DocumentFile current = folder.findFile(originalName);
-            if (current != null) current.delete();
-            DocumentFile restored = folder.createFile("application/octet-stream", originalName);
-            if (restored == null) throw new IOException("Tidak dapat membuat file hasil restore.");
-            copyUri(backup.getUri(), restored.getUri());
-            JSObject result = new JSObject(); result.put("success", true); result.put("fileName", originalName); call.resolve(result);
+            String original = backupName.substring(backupName.indexOf("__") + 2); if (!isSafeFileName(original)) throw new IOException("Nama file backup tidak valid.");
+            String path = getSavedTargetPath(); String backup = path + "/Ryuza-Backup/" + backupName; String target = path + "/" + original;
+            runShizuku("test -f " + shellQuote(backup) + " && cp " + shellQuote(backup) + " " + shellQuote(target));
+            JSObject result = new JSObject(); result.put("success", true); result.put("fileName", original); call.resolve(result);
         } catch (Exception error) { call.reject("Restore gagal: " + error.getMessage()); }
+    }
+
+    private String getSavedTargetPath() { return getContext().getSharedPreferences(PREFS, 0).getString(TARGET_PATH, DEFAULT_ASSET_PATH); }
+    private void validateAssetPath(String path) throws IOException {
+        String root = "/storage/emulated/0/Android/data/com.mobile.legends/files/dragon2017/asset";
+        if (path == null || !(path.equals(root) || path.startsWith(root + "/")) || path.contains("..")) throw new IOException("Path harus berada di folder asset Mobile Legends.");
+    }
+    private String shellQuote(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
+    private String runShizuku(String command) throws Exception {
+        if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission() != android.content.pm.PackageManager.PERMISSION_GRANTED) throw new IOException("Aktifkan Shizuku dan berikan izin kepada Ryuza terlebih dahulu.");
+        Process process = Shizuku.newProcess(new String[]{"sh", "-c", command}, null, null);
+        java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+        try (InputStream in = process.getInputStream(); InputStream err = process.getErrorStream()) { byte[] b = new byte[8192]; int n; while ((n = in.read(b)) > 0) output.write(b, 0, n); while ((n = err.read(b)) > 0) output.write(b, 0, n); }
+        int code = process.waitFor(); String text = output.toString("UTF-8"); if (code != 0) throw new IOException(text.isEmpty() ? "Perintah Shizuku gagal (" + code + ")" : text); return text;
     }
 
     private DocumentFile getTargetFolderDocument() {
