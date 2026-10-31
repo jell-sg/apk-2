@@ -1987,54 +1987,7 @@ html.ryuza-chrome-block #ryuzaChromeGate{display:flex!important}
     <small>Jika halaman tidak terbuka dengan benar, tekan menu ⋮ lalu pilih “Buka di Chrome”.</small>
   </div>
 </div>
-<script id="ryuza-chrome-only">
-(function(){
-  'use strict';
-
-  var ua = navigator.userAgent || '';
-  var isAndroid = /Android/i.test(ua);
-
-  /* Browser yang umum dipakai sebagai in-app WebView/browser. */
-  var inApp =
-    /; ?wv\)/i.test(ua) ||
-    /\bwv\b/i.test(ua) ||
-    /FBAN|FBAV|FBIOS|FB_IAB|Instagram|Line\/|TikTok|BytedanceWebview|Snapchat|Twitter|Pinterest/i.test(ua) ||
-    /; ?GSA\//i.test(ua);
-
-  /*
-   * Android Chrome normal biasanya punya Chrome/<versi>.
-   * WebView Android biasanya punya Version/<versi> ... wv.
-   */
-  var chrome = /Chrome\/[\d.]+/i.test(ua) && !inApp;
-
-  if(!isAndroid || chrome) return;
-
-  document.documentElement.classList.add('ryuza-chrome-block');
-
-  function openChrome(){
-    var clean = location.href.replace(/^https?:\/\//i,'');
-    var intent =
-      'intent://' + clean +
-      '#Intent;scheme=https;package=com.android.chrome;' +
-      'S.browser_fallback_url=' + encodeURIComponent(location.href) +
-      ';end';
-
-    try{
-      location.href = intent;
-    }catch(e){
-      window.open(location.href,'_blank');
-    }
-  }
-
-  var btn=document.getElementById('ryuzaOpenChrome');
-  if(btn) btn.addEventListener('click',openChrome);
-
-  /* Coba buka Chrome otomatis sekali; tetap sediakan tombol jika Android menolak intent. */
-  setTimeout(function(){
-    try{ openChrome(); }catch(e){}
-  },500);
-})();
-</script>
+<!-- Chrome-only redirect disabled for Capacitor Android WebView. -->
 
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
