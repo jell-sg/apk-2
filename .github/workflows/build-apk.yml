@@ -1,5 +1,5 @@
 
-name: Build APK Android
+name: Build Ryuza Official APK
 
 on:
   workflow_dispatch:
@@ -9,56 +9,52 @@ on:
 
 jobs:
   build:
-    name: Build Ryuza Official APK
     runs-on: ubuntu-latest
 
     steps:
-      # Mengambil source code dari repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Menyiapkan Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # Menyiapkan Java
-      - name: Setup Java JDK
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
 
-      # Menyiapkan Android SDK beserta paket yang diperlukan
+      # Android SDK versi terbaru
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
+        uses: android-actions/setup-android@v4
 
-      # Memasang dependency project
+      # Install Android platform dan build tools
+      - name: Install SDK Packages
+        run: |
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+
+      # Install project dependencies
       - name: Install Dependencies
         run: npm install
 
-      # Membuat project Android
+      # Tambahkan Android ke Capacitor
       - name: Add Android Platform
         run: npx cap add android
 
-      # Sinkronisasi HTML dengan Android
+      # Sinkronisasi file HTML
       - name: Sync Capacitor
         run: npx cap sync android
 
       # Build APK
-      - name: Build Debug APK
+      - name: Build APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      # Upload hasil APK
+      # Upload APK ke GitHub
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
