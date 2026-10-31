@@ -1,0 +1,8 @@
+{
+  "appId": "com.ryuza.official",
+  "appName": "Ryuza Official",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

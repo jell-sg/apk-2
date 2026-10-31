@@ -1,0 +1,16 @@
+{
+  "name": "ryuza-creator-hub-android",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Ryuza Official Creator Hub with native asset manager, backup/restore and Shizuku status integration",
+  "scripts": {
+    "build:android": "npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3"
+  }
+}
