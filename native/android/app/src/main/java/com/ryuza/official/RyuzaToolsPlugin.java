@@ -8,8 +8,8 @@ import android.util.Base64;
 
 import androidx.documentfile.provider.DocumentFile;
 
-import com.getcapacitor.ActivityCallback;
-import com.getcapacitor.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
+import androidx.activity.result.ActivityResult;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
