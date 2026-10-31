@@ -19,7 +19,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -47,19 +46,9 @@ jobs:
 
       - name: Set Minimum SDK to 24
         run: |
-          FILE="android/variables.gradle"
-          if [ -f "$FILE" ]; then
-            sed -i 's/minSdkVersion = 23/minSdkVersion = 24/g' "$FILE"
-            sed -i 's/minSdkVersion = 22/minSdkVersion = 24/g' "$FILE"
-          fi
-
-          FILE="android/app/build.gradle"
-          if [ -f "$FILE" ]; then
-            sed -i 's/minSdkVersion 23/minSdkVersion 24/g' "$FILE"
-            sed -i 's/minSdkVersion 22/minSdkVersion 24/g' "$FILE"
-          fi
-
-          grep -R "minSdkVersion" android/
+          find android -name "*.gradle" -type f -exec sed -i \
+            -e 's/minSdkVersion = 23/minSdkVersion = 24/g' \
+            -e 's/minSdkVersion 23/minSdkVersion 24/g' {} +
 
       - name: Build Debug APK
         run: |
