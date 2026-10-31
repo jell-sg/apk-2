@@ -196,7 +196,25 @@ public class RyuzaToolsPlugin extends Plugin {
     private String shellQuote(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
     private String runShizuku(String command) throws Exception {
         if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission() != android.content.pm.PackageManager.PERMISSION_GRANTED) throw new IOException("Aktifkan Shizuku dan berikan izin kepada Ryuza terlebih dahulu.");
-        Process process = Shizuku.newProcess(new String[]{"sh", "-c", command}, null, null);
+        // Shizuku API 13.1.5 exposes newProcess as a private method.
+        // Invoke it reflectively so this source compiles against that API version.
+        Process process;
+        try {
+            java.lang.reflect.Method method = Shizuku.class.getDeclaredMethod(
+                "newProcess", String[].class, String[].class, String.class
+            );
+            method.setAccessible(true);
+            process = (Process) method.invoke(
+                null, new Object[]{new String[]{"sh", "-c", command}, null, null}
+            );
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            throw new IOException(
+                cause == null ? "Shizuku gagal menjalankan perintah." : cause.getMessage(), cause
+            );
+        } catch (ReflectiveOperationException e) {
+            throw new IOException("API proses Shizuku tidak tersedia: " + e.getMessage(), e);
+        }
         java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
         try (InputStream in = process.getInputStream(); InputStream err = process.getErrorStream()) { byte[] b = new byte[8192]; int n; while ((n = in.read(b)) > 0) output.write(b, 0, n); while ((n = err.read(b)) > 0) output.write(b, 0, n); }
         int code = process.waitFor(); String text = output.toString("UTF-8"); if (code != 0) throw new IOException(text.isEmpty() ? "Perintah Shizuku gagal (" + code + ")" : text); return text;
