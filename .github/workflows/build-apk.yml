@@ -1,20 +1,16 @@
-name: Build Ryuza Creator Hub APK
+
+name: Build Android APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-env:
-  ANDROID_COMPILE_SDK: 35
-  ANDROID_BUILD_TOOLS: 35.0.0
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -23,6 +19,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -31,33 +28,48 @@ jobs:
           java-version: 21
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
-        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Install dependencies
+      - name: Install Dependencies
         run: npm install
 
-      - name: Add Android platform
-        run: npx cap add android
+      - name: Add Android Platform
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
 
-      - name: Configure native Ryuza tools
+      - name: Prepare Android
         run: node scripts/prepare-android.mjs
 
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Build debug APK
-        working-directory: android
+      - name: Set Minimum SDK to 24
         run: |
+          FILE="android/variables.gradle"
+          if [ -f "$FILE" ]; then
+            sed -i 's/minSdkVersion = 23/minSdkVersion = 24/g' "$FILE"
+            sed -i 's/minSdkVersion = 22/minSdkVersion = 24/g' "$FILE"
+          fi
+
+          FILE="android/app/build.gradle"
+          if [ -f "$FILE" ]; then
+            sed -i 's/minSdkVersion 23/minSdkVersion 24/g' "$FILE"
+            sed -i 's/minSdkVersion 22/minSdkVersion 24/g' "$FILE"
+          fi
+
+          grep -R "minSdkVersion" android/
+
+      - name: Build Debug APK
+        run: |
+          cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Ryuza-Creator-Hub-APK
+          name: RYUZA-CREATOR-HUB-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
