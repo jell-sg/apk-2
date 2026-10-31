@@ -1,11 +1,9 @@
-
 name: Build Ryuza Creator Hub APK
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
@@ -17,93 +15,45 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Download repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # 3. Setup Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
 
-      # 4. Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
 
-      # 5. Install Android SDK
       - name: Install Android SDK packages
-        run: |
-          sdkmanager --install \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
 
-      # 6. Install project dependencies
       - name: Install dependencies
         run: npm install
 
-      # 7. Add Android platform
       - name: Add Android platform
         run: npx cap add android
 
-      # 8. Configure Ryuza native tools
       - name: Configure native Ryuza tools
         run: node scripts/prepare-android.mjs
 
-      # 9. Sync Capacitor
       - name: Sync Capacitor
         run: npx cap sync android
 
-      # 10. Fix Shizuku minimum SDK
-      - name: Fix Android Minimum SDK
-        run: |
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-
-          const file = 'android/variables.gradle';
-
-          if (!fs.existsSync(file)) {
-            throw new Error('variables.gradle tidak ditemukan!');
-          }
-
-          let content = fs.readFileSync(file, 'utf8');
-
-          const pattern = /(minSdkVersion\s*=\s*)\d+/;
-
-          if (!pattern.test(content)) {
-            throw new Error('Konfigurasi minSdkVersion tidak ditemukan!');
-          }
-
-          content = content.replace(pattern, '$1 24');
-
-          fs.writeFileSync(file, content);
-
-          console.log('minSdkVersion berhasil diubah menjadi 24');
-          NODE
-
-      # 11. Verify SDK configuration
-      - name: Verify Android SDK
-        run: |
-          echo "Memeriksa minimum SDK..."
-          grep "minSdkVersion" android/variables.gradle
-
-      # 12. Build Debug APK
       - name: Build debug APK
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
-      # 13. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
