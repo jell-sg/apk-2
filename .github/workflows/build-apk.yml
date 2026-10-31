@@ -1,5 +1,4 @@
-
-name: Build Android APK
+name: Build Ryuza Creator Hub APK
 
 on:
   workflow_dispatch:
@@ -7,9 +6,20 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ryuza-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_COMPILE_SDK: 35
+      ANDROID_BUILD_TOOLS: 35.0.0
 
     steps:
       - name: Checkout Repository
@@ -26,39 +36,63 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # GitHub's ubuntu-latest image already includes Android SDK.
+      # Avoid setup-android here because its sdkmanager bootstrap was
+      # failing in the user's previous run while fetching remote metadata.
+      - name: Verify and install Android SDK packages if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-not-set}"
+          if [ -z "${ANDROID_HOME:-}" ]; then
+            export ANDROID_HOME="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+            echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          fi
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager || true)"
+          fi
+          if [ ! -d "$ANDROID_HOME/platforms/android-35" ] || [ ! -d "$ANDROID_HOME/build-tools/35.0.0" ]; then
+            if [ -z "$SDKMANAGER" ]; then
+              echo "sdkmanager tidak ditemukan dan Android SDK package belum tersedia."
+              exit 1
+            fi
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            [ -d "$ANDROID_HOME/platforms/android-35" ] || "$SDKMANAGER" "platforms;android-35"
+            [ -d "$ANDROID_HOME/build-tools/35.0.0" ] || "$SDKMANAGER" "build-tools;35.0.0"
+          fi
+          test -d "$ANDROID_HOME/platforms/android-35"
+          test -d "$ANDROID_HOME/build-tools/35.0.0"
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Install Node Dependencies
+        run: npm install --no-audit --no-fund
 
       - name: Add Android Platform
-        run: |
-          if [ ! -d android ]; then
-            npx cap add android
-          fi
+        run: npx cap add android
 
-      - name: Prepare Android
+      - name: Configure Ryuza Native Tools and minSdk 24
         run: node scripts/prepare-android.mjs
 
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Set Minimum SDK to 24
+      - name: Verify minSdkVersion
+        working-directory: android
+        shell: bash
         run: |
-          find android -name "*.gradle" -type f -exec sed -i \
-            -e 's/minSdkVersion = 23/minSdkVersion = 24/g' \
-            -e 's/minSdkVersion 23/minSdkVersion 24/g' {} +
+          grep -n "minSdkVersion" app/build.gradle
+          grep -q "minSdkVersion 24" app/build.gradle
 
       - name: Build Debug APK
+        working-directory: android
         run: |
-          cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RYUZA-CREATOR-HUB-APK
+          name: Ryuza-Creator-Hub-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 30
